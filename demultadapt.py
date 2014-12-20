@@ -19,6 +19,8 @@ TAG_FILE format
                     [...]
                 tag_n    output_file_name_3
                 *        trash
+                
+            You can use same output file for several tags as forwards and reverse tag with same output file.
 """
 
 import sys, os
