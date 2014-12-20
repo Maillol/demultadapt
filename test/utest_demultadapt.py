@@ -5,6 +5,10 @@ import unittest
 import sys
 sys.path.append( "../" )
 from demultadapt import *
+import zipfile
+import tempfile
+import os
+
 
 class TestLevenshtein_selector(unittest.TestCase):
 
@@ -87,5 +91,33 @@ class TestStd_selector(unittest.TestCase):
         self.assertEqual( lsof.select( "AAAAAA", "GGTAAT" ), ("GGTAAT", 2) )
 
         self.assertEqual( lsof.select( "CCAGTG", "ATCGCA" ), None )
+        
+
+class TestFastqFileType(unittest.TestCase):
+
+    def setUp(self):
+        self.tmp_dir = tempfile.mkdtemp()
+        self.zip_name = os.path.join(self.tmp_dir, 'single.fq.zip')
+        
+        self.fastq_content = (
+            "@r001/1-Tag8\n"
+            "TCTGCCTAATGTCTTGGCGATTAACTAGCCACTGTCCCTTCGACGGTGATCACCGGTGTAATGACCCACAATAAA\n"
+            "+\n"
+            "222222222222222222222222222222222222222222222222222222222222222222222222222\n")
+
+        with zipfile.ZipFile(self.zip_name, 'w') as zip_file:
+            zip_file.writestr(self.zip_name[:-4], self.fastq_content)
+        
+    def test_zip_reading(self):
+        fq_file = FastqFileType("r")(self.zip_name)
+        self.assertEqual(self.fastq_content, next(fq_file))
+        
+    def teadDown(self):
+        os.remove(self.zip_name)
+        os.removedir(self.tmp_dir )
+        
+        
+        
+    
 if __name__ == '__main__':
     unittest.main()
