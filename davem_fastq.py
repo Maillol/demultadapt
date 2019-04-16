@@ -16,7 +16,6 @@ COPYRIGHT
 """
 
 import sys
-import zipfile
 
 __version__ = "0.0.2"
 
@@ -59,9 +58,9 @@ class Fastq_read( object ) :
                 return 1
             elif  member == "2" :
                 return 2
-        
+
         else :
-            raise ValueError( "format must be 'Illumina' or 'Casava1.8'" ) 
+            raise ValueError( "format must be 'Illumina' or 'Casava1.8'" )
 
     def cut_end( self, size ) :
         """
@@ -84,12 +83,12 @@ class Fastq_read( object ) :
         if len( name_and_data ) > 1 :
             return name_and_data[1]
         return ""
-            
+
     def split_name( self ) :
         """
         retourne le nom de la séquence sans le prefixe '@'
         et sans les meta donnée qui sont retournées.
-        
+
         return - [cleaned_name, meta_data ]
         """
         return self.name[1:].split( None, 1 )
@@ -101,86 +100,83 @@ class Fastq_read( object ) :
         return "<fastq read '%s' at 0x%x>" % ( self.name, id( self ) )
 
 
-class Fastq_file(file) :
+class Fastq_file(object) :
     """
     Pour manipuler les fichiers fastq.
     """
-    def __init__(self, path, mode):
-        if 'r' in mode and zipfile.is_zipfile(path):
-            zip_file = zipfile.ZipFile(path, "r")
-            self._file = zip_file.open(zip_file.filelist[0], "r")
-        else:
-            self._file = open(path, mode)
-        
-        self.seq_already_write = False
+    def __init__( self, path, mode ) :
+       self.file = open( path, mode)
+       self.seq_already_write = False
 
     def __iter__( self ) :
         return self
- 
-    def readline(self) :
+
+    def readline( self ) :
         """
         extraire la sequence suivante du fichier.
         """
-        r =  self._file.readline()
-        r += self._file.readline()
-        r += self._file.readline()
-        r += self._file.readline()
-        return r
+        return ''.join((self.file.readline(),
+                        self.file.readline(),
+                        self.file.readline(),
+                        self.file.readline()))
 
     def next( self ) :
-        r =  self._file.next()
-        r += self._file.next()
-        r += self._file.next()
-        r += self._file.next()
-        return r
+        return ''.join((next(self.file),
+                        next(self.file),
+                        next(self.file),
+                        next(self.file)))
+
+    __next__ = next
 
     def write( self, seq ) :
         r"""
         seq doit etre au format @ref\nACTG\n+\nffff
         sans aucun autre \n
         """
-        if self.tell() == 0 :
-           self._file.write( seq )
-        else :
-           self._file.write( "\n" + seq )
-            
+        if self.seq_already_write :
+            self.file.write( '\n' )
+        self.seq_already_write = True
+        self.file.write( seq )
+
     def sort( self, path ) :
         """
         Crée une copie triée du fichier fastq.
         """
         index = []
-         
+        tell = 0
         seq = self.next()
         while seq :
-             name_seq = seq.split( '\n', 1 )[ 0 ]
-             index.append( [ name_seq, self.tell() - len( seq ) ] )
-             seq = self.next()
+            name_seq = seq.split( '\n', 1 )[ 0 ]
+            index.append( ( name_seq, tell ) )
+            tell += len(seq)
+            seq = self.next()
 
         index.sort()
-        
         sorted_file = Fastq_file( path, "w" )
         for name, pos in index :
-            self.seek( pos )
+            self.file.seek( pos )
             sorted_file.write( self.readline().rstrip( '\n' ) )
         sorted_file.close()
-        
 
-        
+    def close(self):
+        self.file.close()
+
+
 def clean_seq_name( seq_name ) :
     """
     retourne le nom de la séquence sans le prefixe '@'
     et sans les meta donnée qui sont retournées.
-    
+
     return - [cleaned_name, meta_data ]
     """
     return seq_name[1:].split( None, 1 )
 
 
 
-    
+
 
 if __name__ == "__main__" :
-    of = open( "sort_test_fatq.fq", "w" )
+    of = open( "test_fatq.fq", "w" )
     of.write(  """@PNst-A#0 (mate 1, length=101)
 ATACCCCAGTCCATAAAACCCGAACCCCAAACCCCAATCCCTAAACCCTAAAACCGTAAAGTCCAAAACGCTAACCCCTTAACCCTAAACCCTAAACCCTG
 +
@@ -206,8 +202,9 @@ AAACCCTAAAACCCTAAAATTCAAAAACCCTAAAATCTAAACCCTAAACCGTACACCCTAAACCCTGAACCCAAAACACT
 +
 @<77<66?@1E<EEEF=EDGF?FCE?@2=AEGEGCCD4C@DCD?DEDBEDECEF@FCEDF?FF9D5:,<5A=??8@@'3A@CDA4C@:@7CCCBA<B77=""" )
     of.close()
-    
+
     ff = Fastq_file( "test_fatq.fq", "r" )
     ff.sort( 'test_fatq_sorted.fq' )
-    ff.readline() 
+    ff.readline()
     ff.close()
+
