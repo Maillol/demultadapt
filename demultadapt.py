@@ -9,8 +9,8 @@ SYNOPSIS
        python demulttag.py [OPTION] TAG_FILE
 
 DESCRIPTION
-       For each sequence, demultadapt chose an output file and remove the tag.
-       
+       For each sequence, demultadapt chooses an output file and removes the tag.
+
 TAG_FILE format
             file with tag sequences i.e ACGTAGCT and output file names, the last line must have * tag :
 
@@ -19,30 +19,43 @@ TAG_FILE format
                     [...]
                 tag_n    output_file_name_3
                 *        trash
-                
+
             You can use same output file for several tags as forwards and reverse tag with same output file.
 """
+from __future__ import print_function
 
 import sys, os
 from davem_fastq import Fastq_read, Fastq_file
 import argparse
-from itertools import izip
+try:
+    from itertools import izip
+except ImportError:
+     izip = zip
+
 from bisect import bisect_left
- 
+
+try:
+    import Levenshtein
+except ImportError:
+    LEVENSHTEIN_IS_ENABLE = False
+else:
+    LEVENSHTEIN_IS_ENABLE = True
+
+
 class FastqFileType( object ) :
     """
     Fastq file factory
-    """    
+    """
     def __init__( self, mode ) :
         self.mode = mode
-    
+
     def __call__( self, path_name) :
         return Fastq_file( path_name, self.mode )
 
 
 class Selector( object ) :
     """
-    Abstract class to look for an output file in tags_table. 
+    Abstract class to look for an output file in tags_table.
     When you call select method, this class select an output depending the sequence.
     You must implement __single_select and __paired_select method when subclassing this class.
     """
@@ -83,19 +96,19 @@ class Levenshtein_selector( Selector ) :
 
     def _single_select( self, sequence) :
         from Levenshtein import ratio
-        
+
         distances = []
         for (adaptator, output_file) in self.tags_table :
             dist = ratio( adaptator, sequence[ : len( adaptator ) ] )
             if dist == 1.0 :
                 return (adaptator, output_file)
-        
+
             distances.append( dist )
-        
+
         max_dist = max( distances )
         if max_dist >= self.rate and distances.count( max_dist ) == 1 :
             return self.tags_table[ distances.index( max_dist ) ]
-        
+
         return None
 
     def _paired_select( self, sequence_1, sequence_2) :
@@ -106,7 +119,7 @@ class Levenshtein_selector( Selector ) :
         for line in self.tags_table :
             adaptator = line[ 0 ]
             dist_1 = ratio( adaptator, sequence_1[ : len( adaptator ) ] )
-            dist_2 = ratio( adaptator, sequence_2[ : len( adaptator ) ] )        
+            dist_2 = ratio( adaptator, sequence_2[ : len( adaptator ) ] )
             distances_1.append( dist_1 )
             distances_2.append( dist_2 )
 
@@ -116,7 +129,7 @@ class Levenshtein_selector( Selector ) :
         if max_dist_1 > max_dist_2 :
             if max_dist_1 >= self.rate and distances_1.count( max_dist_1 ) == 1 :
                 return self.tags_table[ distances_1.index( max_dist_1 ) ]
-                                
+
         elif max_dist_1 < max_dist_2 :
             if max_dist_2 >= self.rate and distances_2.count( max_dist_2 ) == 1 :
                 return self.tags_table[ distances_2.index( max_dist_2 ) ]
@@ -140,7 +153,7 @@ class Levenshtein_selector( Selector ) :
 
 class LevenshteinAllSelector( Levenshtein_selector ) :
     """
-    Levenshtein_selector with paired-end way, Two member sequence of paired-end must be greater or equal to 
+    Levenshtein_selector with paired-end way, Two member sequence of paired-end must be greater or equal to
     rate min and have same tags.
     """
 
@@ -152,16 +165,16 @@ class LevenshteinAllSelector( Levenshtein_selector ) :
         for line in self.tags_table :
             adaptator = line[ 0 ]
             dist_1 = ratio( adaptator, sequence_1[ : len( adaptator ) ] )
-            dist_2 = ratio( adaptator, sequence_2[ : len( adaptator ) ] )        
+            dist_2 = ratio( adaptator, sequence_2[ : len( adaptator ) ] )
             distances_1.append( dist_1 )
             distances_2.append( dist_2 )
 
         max_dist_1 = max( distances_1 )
         max_dist_2 = max( distances_2 )
 
-        if ( max_dist_1 >= self.rate and max_dist_2 >= self.rate 
+        if ( max_dist_1 >= self.rate and max_dist_2 >= self.rate
            and distances_1.count( max_dist_1 ) == distances_2.count( max_dist_2 ) == 1 ) :
-               adapt_1 = self.tags_table[ distances_1.index( max_dist_1 ) ] 
+               adapt_1 = self.tags_table[ distances_1.index( max_dist_1 ) ]
                adapt_2 = self.tags_table[ distances_2.index( max_dist_2 ) ]
                if adapt_1 == adapt_2 :
                     return adapt_1
@@ -170,7 +183,7 @@ class LevenshteinAllSelector( Levenshtein_selector ) :
 
 class Std_selector( Selector ):
     """
-    Search in the tags_table, sequence start must be identical to tag not similar. 
+    Search in the tags_table, sequence start must be identical to tag not similar.
     """
 
     def _paired_select( self, sequence_1, sequence_2):
@@ -178,27 +191,27 @@ class Std_selector( Selector ):
         l2 = self._single_select( sequence_2 )
         if l1 is None :
             return l2
-        
+
         if l2 is None :
             return l1
-        
+
         if l1 == l2 :
             return l1
 
         return None
-        
-        
+
+
     def _single_select( self, sequence):
         a = 0
         b = len( self.tags_table ) -1
         if b == -1 :
             return None
-        
+
         while a <= b  :
             m = ( a + b ) // 2
             adaptator = self.tags_table[ m ][ 0 ]
             start_seq = sequence[ : len( adaptator ) ]
-            
+
             if adaptator > start_seq :
                 b = m - 1
             elif adaptator < start_seq :
@@ -213,19 +226,20 @@ class Std_selector( Selector ):
 
 def get_adapt_counter( opened_adapt_file ) :
     """
-    return { tag1 : 0, 
+    return { tag1 : 0,
              tag2 : 0,
-             ... 
+             ...
              tagN : 0 }
     """
     d = {}
     opened_adapt_file.seek(0)
     for line in opened_adapt_file :
         if not line.isspace() :
-            try :    
+            try :
                 adapt, name_tag = line.split()
             except ValueError :
-                print >> sys.stderr, "Error '%s' is an invalid file format." %  opened_adapt_file.name
+                print("Error '%s' is an invalid file format." %  opened_adapt_file.name,
+                      file=sys.stderr)
                 exit( 1 )
             d[ adapt ] = [ name_tag, 0 ]
     return d
@@ -240,9 +254,9 @@ def get_maximal_annalogie( file_adapt ) :
     for line in file_adapt :
         if line :
             (adapt, name) = line.split()
-            if adapt != "*" :           
+            if adapt != "*" :
                 adaptators.append( adapt )
-   
+
     ratio_max = 0.0
     for i, adapt in enumerate( adaptators ) :
         for adapt2 in adaptators[i+1:] :
@@ -255,23 +269,23 @@ def get_maximal_annalogie( file_adapt ) :
 
 def make_tag_table( opened_adapt_file, prefix, paired_end=True ) :
     """
-    Return the output file list (tag_table) and trash_file. 
-    
+    Return the output file list (tag_table) and trash_file.
+
     When paired_end is True, the tag_table format is:
-    
+
         [ (tagA, output_file_A_1, output_file_A_2 ),
           (tagB, output_file_B_1, output_file_B_2 ),
           ...  ]
-    
+
         return ( tag_table, (trash_file_1, trash_file_2) )
-    
+
     else:
         [ (tagA, output_file_A ),
-          (tagB, output_file_B ), 
+          (tagB, output_file_B ),
           ...  ]
         return ( tag_table, (trash_file_1,) )
-    """ 
-    
+    """
+
 
     ada_files = []
     default = None
@@ -279,10 +293,11 @@ def make_tag_table( opened_adapt_file, prefix, paired_end=True ) :
 
     for line in opened_adapt_file :
         if not line.isspace() :
-                try :    
+                try :
                     adapt, suffix_file = line.split()
                 except ValueError :
-                    print >> sys.stderr, "Error: '%s' is an invalid file format." %  opened_adapt_file.name
+                    print("Error: '%s' is an invalid file format." %  opened_adapt_file.name,
+                          file=sys.stderr)
                     exit( 1 )
 
                 if paired_end :
@@ -309,15 +324,15 @@ def make_tag_table( opened_adapt_file, prefix, paired_end=True ) :
 
                     else :
                         ada_files.append(  (
-                                                adapt, 
+                                                adapt,
                                                 Fastq_file( "%s-%s.fastq" % (prefix, suffix_file), "w" )
                                            )
                         )
 
     if default is None :
-        print >> sys.stderr, "Le fichier '%s' n'a pas de ligne avec le tag jocker *.\nAjouter une ligne '*    tag_name'." %  opened_adapt_file.name
+        print("Le fichier '%s' n'a pas de ligne avec le tag jocker *.\nAjouter une ligne '*    tag_name'." %  opened_adapt_file.name, file=sys.stderr)
         sys.exit(1)
-    
+
     ada_files.sort()
     return ada_files, default
 
@@ -329,7 +344,7 @@ def parse_user_argument() :
     parser = argparse.ArgumentParser( formatter_class=argparse.RawDescriptionHelpFormatter, description=__doc__ )
     parser.add_argument( 'file_adapt', metavar="FILE_TAG", nargs=1, type=argparse.FileType('r') )
 
-    parser.add_argument( '-f', '--fastq_1', dest="fastq_1", type=FastqFileType( "r" ), action='store', 
+    parser.add_argument( '-f', '--fastq_1', dest="fastq_1", type=FastqFileType( "r" ), action='store',
                             help="single-end file or paired-end file 1" )
 
     parser.add_argument( '-F', '--fastq_2', dest="fastq_2", type=FastqFileType( "r" ), action='store', default=None,
@@ -339,7 +354,7 @@ def parse_user_argument() :
                             help="output file names are: PREFIX-NAME_IN_FILE_TAG.fastq"  )
 
     parser.add_argument( '-l', '--levenshtein', dest="levenshtein", action='store', type=float, default=None,
-                            help="Use a Levenshtein distance to demultiple" )
+                        help="Use a Levenshtein distance to demultiple" )
 
     parser.add_argument( '-v', '--verbose', dest="verbose", action='store_true',
                             help="explain what is being done" )
@@ -352,16 +367,22 @@ def parse_user_argument() :
 
     user_args = parser.parse_args()
     user_args.file_adapt = user_args.file_adapt[0]
-    user_args.single_end = user_args.fastq_2 is None 
+    user_args.single_end = user_args.fastq_2 is None
     return user_args
 
 def main() :
     user_args = parse_user_argument()
 
+    if not LEVENSHTEIN_IS_ENABLE and (user_args.levenshtein or user_args.analogy):
+            print("ERROR: python-Levenshtein is not installed", file=sys.stderr)
+            print("Please install python-Levenshtein to enable this feature", file=sys.stderr)
+            print("See: https://pypi.org/project/python-Levenshtein/", file=sys.stderr)
+            sys.exit(1)
+
     if user_args.analogy :
-        print "Maximal Levenshtein ratio between adaptors is %f" % get_maximal_annalogie( user_args.file_adapt )
-        sys.exit(0)        
-            
+        print("Maximal Levenshtein ratio between adaptors is %f" % get_maximal_annalogie( user_args.file_adapt ))
+        sys.exit(0)
+
     output_files_by_adapt, defaults_files = make_tag_table( user_args.file_adapt,
                                                             user_args.output_prefix,
                                                             not user_args.single_end )
@@ -370,18 +391,18 @@ def main() :
 
     user_args.file_adapt.close()
 
-    if user_args.levenshtein : 
+    if user_args.levenshtein :
         if user_args.all :
-            select_output_file = LevenshteinAllSelector( output_files_by_adapt, 
+            select_output_file = LevenshteinAllSelector( output_files_by_adapt,
                                                        user_args.single_end,
                                                        user_args.levenshtein )
 
         else :
-            select_output_file = Levenshtein_selector( output_files_by_adapt, 
+            select_output_file = Levenshtein_selector( output_files_by_adapt,
                                                        user_args.single_end,
                                                        user_args.levenshtein )
     else :
-        select_output_file = Std_selector( output_files_by_adapt, 
+        select_output_file = Std_selector( output_files_by_adapt,
                                            user_args.single_end )
 
     # Single_end
@@ -392,14 +413,14 @@ def main() :
             adapt_and_line = select_output_file.select( read.seq )
             if adapt_and_line is None :
                 if user_args.verbose :
-                    print "Read '%s' start with %s... and go to *" % (read.name, read.seq[ : 14 ])
+                    print("Read '%s' start with %s... and go to *" % (read.name, read.seq[ : 14 ]))
                 default_file.write( str( read ) )
                 nb_reads_writen[ '*' ][ 1 ] += 1
 
             else :
                 (adapt, output_file) = adapt_and_line
                 if user_args.verbose :
-                    print "Read '%s' start with %s... and go to %s" % (read.name, read.seq[ : len( adapt ) ], adapt)
+                    print("Read '%s' start with %s... and go to %s" % (read.name, read.seq[ : len( adapt ) ], adapt))
 
                 read.cut_start( len( adapt ) )
                 output_file.write( str( read ) )
@@ -419,7 +440,7 @@ def main() :
             read_2 = Fastq_read( str_read_2 )
 
             adapt_and_line = select_output_file.select( read_1.seq, read_2.seq )
-            
+
             if adapt_and_line is None :
                 default_file_1.write( str( read_1 ) )
                 default_file_2.write( str( read_2 ) )
@@ -444,7 +465,7 @@ def main() :
 
     # show stat.
     for nb_reads_by_name in nb_reads_writen.values() :
-        print "%s %d reads" % tuple( nb_reads_by_name )
+        print( "%s %d reads" % tuple( nb_reads_by_name ))
 
 
 if __name__ == '__main__':
